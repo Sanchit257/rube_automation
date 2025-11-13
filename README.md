@@ -16,13 +16,15 @@ The Sheet and Doc must be accessible to the same Google account you connect in r
 If your org locks sharing down, add your own Google account and confirm you can open both links in the same browser profile you’ll use for rube.app.
 
 
-**2) Set up rube.app
-**Log in to rube.app and paste the YAML workflow into the textbox.
+**2) Set up rube.app**
+
+Log in to rube.app and paste the YAML workflow into the textbox.
 After that, follow the instructions it gives you. This may include connecting apps such as gmail and google sheets, docs, etc...
 
 
-**3) Provide the inputs
-**When you run the workflow, rube.app will prompt you for these:
+**3) Provide the inputs**
+
+When you run the workflow, rube.app will prompt you for these:
 
 user_cc_email: Your email to CC on every message. Example: you@school.edu
 
@@ -38,20 +40,20 @@ column_map (optional): Only touch this if your Sheet uses different header names
 
 
 
-**4) Do a quick test (strongly recommended)
-**
+**4) Do a quick test (strongly recommended)**
+
 In your Sheet, add a single test row with your own email in Recruiter Email.
 Run the workflow. When it shows the preview of the first batch, confirm sending.
 Check your Gmail “Sent” to see the email and formatting.
 Check the Sheet to see the tracking columns updated for that row.
 
-**It is configured to send 10 emails at a time after explicit confirmation from the user. This is because we do not want Gmail to flag the ACM Sponsorship email as a potential spam account.
-**
+**It is configured to send 10 emails at a time after explicit confirmation from the user. This is because we do not want Gmail to flag the ACM Sponsorship email as a potential spam account.**
+
 
 If the email does not show up the way you want it, then you can always prompt rube.app to change it how you want it. Make sure to not make too many changes though...
 
-**5) Run the real thing
-**
+**5) Run the real thing**
+
 Run the workflow again with your real Sheet.
 rube.app will show a preview list of up to 10 recipients in the batch:
 You’ll see the company, contact name, and email for each.
@@ -61,8 +63,8 @@ Confirm sending this batch? Type yes to send or no to skip.
 What name should I use (first and last name)? Enter the sender name you want on the emails.
 After sending a batch, you’ll get a summary and a question to continue. Say yes to process the next 10, or no to stop.
 
-**6) How personalization works
-**
+**6) How personalization works**
+
 The subject line is always BeachHacks Sponsorship.
 The placeholders in your Doc will be replaced with:
 Company → the value in Company
@@ -74,16 +76,16 @@ CC: your user_cc_email
 From name: your sender_full_name (the Gmail account connected to rube.app actually sends it)
 
 
-**8) Common problems and quick fixes
-**
+**8) Common problems and quick fixes**
+
 Missing permissions: If rube.app can’t read or write, reconnect Google in rube.app, then ensure the Sheet and Doc are accessible to that same Google account.
 Header names don’t match: Either rename your Sheet headers to the defaults or edit column_map in the input to match your actual header text exactly.
 Placeholders not changing: Make sure your Doc uses one of the listed placeholder patterns. If your placeholders are different, add them to the replacement list in the YAML or change the Doc to match.
 Recruiter name is blank: The workflow uses “University Relations Team.” That’s expected.
 Gmail sending limits: If you’re sending lots of emails, keep batch sending spread out if your account has limits.
 
-**9) Tips for a smooth run
-**
+**9) Tips for a smooth run**
+
 Keep your Sheet clean: one header row, then data. No merged cells in the header.
 Make sure every row has a valid Recruiter Email.
 If you need to pause between batches, just answer no when asked to continue. You can re-run later, and it will pick up unsent rows.
