@@ -1,0 +1,254 @@
+name: BeachHacks Sponsorship Outreach
+description: >
+  Reads a Google Sheet of tech company university relations/recruiter contacts,
+  personalizes a Google Doc email template with AI-generated company-specific content,
+  and sends emails via Gmail in batches of 10. Tracks status back in the same Sheet. 
+  Before each batch is sent, asks for your confirmation and the sender name to use. 
+  CCs your email on each message.
+
+inputs:
+  user_cc_email:
+    type: string
+    required: true
+    prompt: "What's your email address to CC on every message?"
+  sender_full_name:
+    type: string
+    required: true
+    prompt: "What name should I use as the sender? (First and last name)"
+  sheet_url:
+    type: string
+    required: true
+    default: "https://docs.google.com/spreadsheets/d/1bRzLqmsVaQ_jcUhSCImegs8BoNCb4_Dkvp1NB5l4x8s/edit?usp=sharing"
+  template_doc_url:
+    type: string
+    required: true
+    default: "https://docs.google.com/document/d/1iFhftFxQAon6HYov4kv6kw0hX-3y959WstTwjT8d_1Q/edit?usp=sharing"
+  batch_size:
+    type: integer
+    required: false
+    default: 10
+  column_map:
+    type: object
+    required: false
+    default:
+      company: "Company"
+      contact_name: "Recruiter Name"
+      contact_email: "Recruiter Email"
+      sent_status: "Sent?"
+      sent_timestamp: "Sent At"
+      sent_by_name: "Sender Name"
+      sent_by_email: "Sender Email"
+      message_id: "Gmail Message ID"
+      subject_col: "Subject Used"
+
+permissions:
+  - google.sheets.read
+  - google.sheets.write
+  - google.docs.read
+  - google.gmail.send
+  - llm.invoke
+
+constants:
+  email_subject: "BeachHacks Sponsorship"
+
+setup:
+  - id: load_sheet
+    using: google.sheets.read
+    with:
+      url: "{{ inputs.sheet_url }}"
+  - id: ensure_columns
+    run: |
+      # Ensure the tracking columns exist; create them if missing.
+      required_cols = [
+        inputs.column_map.sent_status,
+        inputs.column_map.sent_timestamp,
+        inputs.column_map.sent_by_name,
+        inputs.column_map.sent_by_email,
+        inputs.column_map.message_id,
+        inputs.column_map.subject_col
+      ]
+      sheet.ensure_columns(required_cols)
+
+steps:
+  - id: fetch_template_text
+    using: google.docs.read
+    with:
+      url: "{{ inputs.template_doc_url }}"
+    returns: { template_text: text }
+
+  - id: read_candidates
+    using: google.sheets.read
+    with:
+      url: "{{ inputs.sheet_url }}"
+    returns: { rows: rows, header: header }
+
+  - id: select_unsent
+    run: |
+      # Map headers
+      cm = inputs.column_map
+      idx = header.index_map()
+      company_idx = idx.get(cm.company)
+      name_idx    = idx.get(cm.contact_name)
+      email_idx   = idx.get(cm.contact_email)
+      sent_idx    = idx.get(cm.sent_status)
+
+      # Filter valid, unsent rows
+      candidates = []
+      for r_i, row in enumerate(rows, start=2):  # 1-based header; data starts at row 2
+        company = row.get(company_idx, "").strip()
+        contact = row.get(name_idx, "").strip()
+        email   = row.get(email_idx, "").strip()
+        sent    = row.get(sent_idx, "").strip().lower() if sent_idx is not None else ""
+
+        if company and email and sent not in ["yes", "y", "sent", "true", "done", "✓"]:
+          candidates.append({"row_number": r_i, "company": company, "contact": contact, "email": email})
+
+      state.set("candidates", candidates)
+
+  - id: batch_loop
+    loop:
+      items: "{{ state.get('candidates', []) }}"
+      batch_size: "{{ inputs.batch_size }}"
+    steps:
+      - id: preview_batch
+        run: |
+          preview = []
+          for item in loop.items:
+            preview.append(f"- {item['company']} → {item['contact'] or '(no name)'} <{item['email']}>")
+          state.set("preview_text", "\n".join(preview))
+
+      - id: confirm_send
+        prompt: |
+          You're about to send {{ loop.items|length }} emails with subject "{{ constants.email_subject }}",
+          from "{{ inputs.sender_full_name }}", CC "{{ inputs.user_cc_email }}".
+          Recipients:
+          {{ state.get("preview_text") }}
+
+          Proceed with sending this batch? (yes/no)
+        validate: one_of:["yes","no"]
+
+      - id: maybe_stop
+        if: "{{ steps.confirm_send.response != 'yes' }}"
+        run: "loop.stop()"
+
+      - id: send_each
+        loop:
+          items: "{{ loop.items }}"
+        steps:
+          - id: generate_personalized_content
+            using: llm.invoke
+            with:
+              prompt: |
+                Generate a personalized sponsorship pitch for {{ item['company'] }} 
+                to sponsor BeachHacks hackathon at Cal State Long Beach.
+                
+                STRICT REQUIREMENT: Write EXACTLY 5 sentences. No more, no less.
+                
+                Include:
+                - 1-2 sentences with relevant facts about {{ item['company'] }}'s products, technology, or mission
+                - 1-2 sentences on why sponsoring a hackathon aligns with their goals (talent recruitment, brand awareness, community engagement)
+                - 1-2 sentences on why BeachHacks participants (CS/CE students from Southern California) would be interested in {{ item['company'] }} and relevant tech domains/tools
+                
+                Write in a professional but enthusiastic tone. Do NOT use placeholder text. 
+                Make it feel tailored and researched. 
+                Do not include a greeting or closing.
+                
+                COUNT YOUR SENTENCES. You must write exactly 5 sentences.
+            returns: { personalized_pitch: response }
+
+          - id: personalize_body
+            run: |
+              body = steps.fetch_template_text.template_text
+
+              # Basic replacements for company and contact
+              replacements = {
+                "{{Company}}": item['company'],
+                "{{COMPANY}}": item['company'],
+                "{Company}": item['company'],
+                "[COMPANY_NAME]": item['company'],
+                "<Company Name>": item['company'],
+                "{{RecruiterName}}": item['contact'] or "University Relations Team",
+                "{{CONTACT_NAME}}": item['contact'] or "University Relations Team",
+                "{RecruiterName}": item['contact'] or "University Relations Team",
+                "[CONTACT_NAME]": item['contact'] or "University Relations Team",
+                "<University Relations/Recruiter Name>": item['contact'] or "University Relations Team",
+                "_______'s": f"{item['company']}'s",
+                "______'s": f"{item['company']}'s",
+                "_______": item['company'],
+                "________": item['contact'] or "University Relations Team",
+              }
+
+              for k, v in replacements.items():
+                body = body.replace(k, v)
+
+              # Replace sender name
+              for k in ["{{SenderName}}","{{SENDER_NAME}}","[SENDER_NAME]","{SenderName}","<Sender Name>","[Your actual Name]"]:
+                body = body.replace(k, inputs.sender_full_name)
+
+              # Find and replace the template section with AI-generated content
+              # Remove the guidelines section and replace with personalized pitch
+              guidelines_start = body.find("(Guidelines for targeted message)")
+              if guidelines_start == -1:
+                guidelines_start = body.find("We would love to have you at BeachHacks")
+              
+              audience_end = body.find("We hope you will join us")
+              
+              if guidelines_start != -1 and audience_end != -1:
+                # Replace everything between "BeachHacks 9.0 as:" and "We hope you will join us"
+                before_section = body[:guidelines_start]
+                after_section = body[audience_end:]
+                
+                # Insert the personalized content
+                body = before_section + "\n\n" + steps.generate_personalized_content.personalized_pitch + "\n\n" + after_section
+
+              state.set("personalized_body", body)
+
+          - id: send_email
+            using: google.gmail.send
+            with:
+              to: "{{ item.email }}"
+              cc: "{{ inputs.user_cc_email }}"
+              subject: "{{ constants.email_subject }}"
+              from_name: "{{ inputs.sender_full_name }}"
+              body_html: "{{ state.get('personalized_body') }}"
+            returns: { message_id: id }
+
+          - id: update_row
+            using: google.sheets.write
+            with:
+              url: "{{ inputs.sheet_url }}"
+              updates:
+                - row: "{{ item.row_number }}"
+                  values:
+                    "{{ inputs.column_map.sent_status }}": "SENT"
+                    "{{ inputs.column_map.sent_timestamp }}": "{{ now() }}"
+                    "{{ inputs.column_map.sent_by_name }}": "{{ inputs.sender_full_name }}"
+                    "{{ inputs.column_map.sent_by_email }}": "{{ inputs.user_cc_email }}"
+                    "{{ inputs.column_map.message_id }}": "{{ steps.send_email.message_id }}"
+                    "{{ inputs.column_map.subject_col }}": "{{ constants.email_subject }}"
+
+      - id: batch_summary
+        run: |
+          sent_to = [f"{i['company']} <{i['email']}>" for i in loop.items]
+          state.set("last_batch_summary", "\n".join(sent_to))
+
+      - id: show_summary
+        prompt: |
+          Sent {{ loop.items|length }} emails:
+          {{ state.get("last_batch_summary") }}
+
+          Continue to the next batch of {{ inputs.batch_size }}? (yes/no)
+        validate: one_of:["yes","no"]
+
+      - id: continue_or_stop
+        if: "{{ steps.show_summary.response != 'yes' }}"
+        run: "loop.stop()"
+
+finalize:
+  - id: done_message
+    run: |
+      remaining = len(state.get("candidates", [])) - loop.total_processed
+      msg = f"All done. Processed {loop.total_processed} contacts."
+      if remaining > 0:
+        msg += f" {remaining} contact(s) remain unsent."
+      output.print(msg)
